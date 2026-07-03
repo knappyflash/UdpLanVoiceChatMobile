@@ -55,6 +55,9 @@ class VoiceChatService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
 
+    private val hpFilter = SimpleHighPassFilter(44100f, 100f)
+    private val lpFilter = SimpleLowPassFilter(44100f, 3500f)
+
     @Volatile
     private var running = false
 
@@ -266,6 +269,8 @@ class VoiceChatService : Service() {
                 val bytes = audioBytes
 
                 if (bytes != null) {
+
+                    applyVoiceBandPass(bytes)
                     applyGainPcm16(bytes, playbackGain)
 
                     try {
@@ -501,5 +506,35 @@ class VoiceChatService : Service() {
     override fun onDestroy() {
         stopVoiceChat()
         super.onDestroy()
+    }
+
+    private fun applyVoiceBandPass(buffer: ByteArray) {
+
+        var i = 0
+
+        while (i < buffer.size - 1) {
+
+            val low = buffer[i].toInt() and 0xFF
+            val high = buffer[i + 1].toInt()
+
+            var sample = (high shl 8) or low
+
+            if (sample > 32767)
+                sample -= 65536
+
+            var s = sample / 32768.0f
+
+            s = hpFilter.process(s)
+            s = lpFilter.process(s)
+
+            s = s.coerceIn(-1.0f, 1.0f)
+
+            val output = (s * 32767f).toInt()
+
+            buffer[i] = output.toByte()
+            buffer[i + 1] = (output shr 8).toByte()
+
+            i += 2
+        }
     }
 }
